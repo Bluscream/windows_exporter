@@ -85,7 +85,7 @@ $script_path = $MyInvocation.MyCommand.Path
 $working_dir = Split-Path $script_path
 Push-Location $working_dir
 
-$temp_dir = Join-Path $env:TEMP $(New-Guid) | ForEach-Object { mkdir $_ }
+$temp_dir = Join-Path $env:TEMP $([guid]::newguid()) | ForEach-Object { mkdir $_ }
 
 # Start process in background, awaiting HTTP requests.
 # Listen on 9183/TCP, preventing conflicts with 9182/TCP used by end-to-end-test.ps1
@@ -93,7 +93,7 @@ $temp_dir = Join-Path $env:TEMP $(New-Guid) | ForEach-Object { mkdir $_ }
 $exporter_proc = Start-Process `
     -PassThru `
     -FilePath ..\windows_exporter.exe `
-    -ArgumentList '--web.listen-address="127.0.0.1:9183" --log.level=debug' `
+    -ArgumentList '--web.listen-address="127.0.0.1:9183" --log.level=debug --collectors.enabled=[defaults],cpu_info,textfile,process,scheduled_task'`
     -WindowStyle Hidden `
     -RedirectStandardOutput "$($temp_dir)/windows_exporter.log" `
     -RedirectStandardError "$($temp_dir)/windows_exporter_error.log"
@@ -110,15 +110,32 @@ for ($i=1; $i -le 5; $i++) {
 }
 
 # Omit metrics from client_golang library; we're not responsible for these
-$skip_re = "^[#]?\s*(HELP|TYPE)?\s*go_"
+# windows_memory_pool_nonpaged_allocs_total is wrong for years. It's not a gauge, but a counter.
+$skip_re = "^([#]?\s*(HELP|TYPE)?\s*go_|windows_memory_pool_nonpaged_allocs_total)"
 
-# Need to remove carriage returns, as promtool expects LF line endings
-$output = ((Invoke-WebRequest -UseBasicParsing -URI http://127.0.0.1:9183/metrics).Content) -Split "`r?`n" | Select-String -NotMatch $skip_re | Join-String -Separator "`n"
-# Join the split lines back to a single String (with LF line endings!)
-$output = $output -Join "`n"
-Stop-Process -Id $exporter_proc.Id
+try {
+    # Need to remove carriage returns, as promtool expects LF line endings
+    $output = ((Invoke-WebRequest -UseBasicParsing -URI http://127.0.0.1:9183/metrics).Content) -Split "`r?`n" | Select-String -NotMatch $skip_re | Join-String -Separator "`n"
+    # $output = (((Invoke-WebRequest -UseBasicParsing -URI http://127.0.0.1:9183/metrics).Content) -Split "`r?`n" | Select-String -NotMatch $skip_re) -join "`n"
+    # Join the split lines back to a single String (with LF line endings!)
+    $output = $output -Join "`n"
+
+    Stop-Process -Id $exporter_proc.Id
+} catch {
+    Write-Host "STDOUT"
+    Get-Content "$($temp_dir)/windows_exporter.log"
+    Write-Host "STDERR"
+    Get-Content "$($temp_dir)/windows_exporter_error.log"
+
+    throw $_
+}
+
 $ExitCode = Start-RawProcess -InputVar $output -CommandName promtool.exe -CommandArgs @("check metrics")
 if ($ExitCode -ne 0) {
+    Write-Host "OUTPUT"
+
+    Write-Host $output
+
     Write-Host "Promtool command returned exit code $($ExitCode). See output for details."
     EXIT 1
 }
