@@ -1,5 +1,9 @@
 # cs collector
 
+> [!CAUTION]
+> This collector is deprecated and will be removed in a future release.
+> See https://github.com/prometheus-community/windows_exporter/pull/1596 for more information.
+
 The cs collector exposes metrics detailing the hardware of the computer system
 
 |||
@@ -18,7 +22,7 @@ Name | Description | Type | Labels
 -----|-------------|------|-------
 `windows_cs_logical_processors` | Number of installed logical processors | gauge | None
 `windows_cs_physical_memory_bytes` | Total installed physical memory | gauge | None
-`windows_cs_hostname` | Labeled system hostname information | gauge | `hostname`, `domain`, `fqdn`
+`windows_cs_hostname` | Labelled system hostname information | gauge | `hostname`, `domain`, `fqdn`
 
 ### Example metric
 _This collector does not yet have explained examples, we would appreciate your help adding them!_
